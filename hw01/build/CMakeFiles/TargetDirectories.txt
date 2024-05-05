@@ -1,0 +1,6 @@
+/home/lym/hpc-cpp/hw01/build/CMakeFiles/main.dir
+/home/lym/hpc-cpp/hw01/build/CMakeFiles/edit_cache.dir
+/home/lym/hpc-cpp/hw01/build/CMakeFiles/rebuild_cache.dir
+/home/lym/hpc-cpp/hw01/build/stbiw/CMakeFiles/stbiw.dir
+/home/lym/hpc-cpp/hw01/build/stbiw/CMakeFiles/edit_cache.dir
+/home/lym/hpc-cpp/hw01/build/stbiw/CMakeFiles/rebuild_cache.dir
