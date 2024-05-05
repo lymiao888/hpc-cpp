@@ -11,14 +11,13 @@ struct Node {
     int value;
 
     // 这个构造函数有什么可以改进的？
-    Node(int val) {
-        value = val;
-    }
+   explicit Node(int val):value(val) {}
 
-    void insert(int val) {
+    void insert(int &val) {
         auto node = std::make_shared<Node>(val);
         node->next = next;
         node->prev = prev;
+        //这里会循环引用之类的问题，导致内存泄露
         if (prev)
             prev->next = node;
         if (next)
@@ -80,7 +79,7 @@ struct List {
     }
 };
 
-void print(List lst) {  // 有什么值得改进的？
+void print(List const &lst) {  // 有什么值得改进的？
     printf("[");
     for (auto curr = lst.front(); curr; curr = curr->next.get()) {
         printf(" %d", curr->value);
