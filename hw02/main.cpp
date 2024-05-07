@@ -3,9 +3,9 @@
 #include <memory>
 
 struct Node {
-    // 这两个指针会造成什么问题？请修复
-    std::shared_ptr<Node> next;
-    std::weak_ptr<Node> prev;
+    
+    std::unique_ptr<Node> next;
+    Node* prev;
     // 如果能改成 unique_ptr 就更好了!
 
     int value;
@@ -13,37 +13,39 @@ struct Node {
     // 这个构造函数有什么可以改进的？
     explicit Node(int val):value(val) {}
 
-    void insert(int &val) {
-        auto node = std::make_shared<Node>(val);
-        node->next = next;
-        node->prev = prev;
-        //这里会循环引用之类的问题，导致内存泄露
-        if (!prev.expired())
-            prev.lock()->next = node;
-        if (next)
-            next->prev = node;
-    }
-
     void erase() {
-        if (!prev.expired())
-            prev.lock()->next = next;
         if (next)
             next->prev = prev;
+        if (prev)
+            prev->next = std::move(next);   
     }
 
     ~Node() {
         printf("~Node()\n");   // 应输出多少次？为什么少了？
     }
+
 };
 
 struct List {
-    std::shared_ptr<Node> head;
+    std::unique_ptr<Node> head;
 
     List() = default;
 
     List(List const &other) {
         printf("List 被拷贝！\n");
-        head = other.head;  // 这是浅拷贝！
+        Node* ptr1 = other.head.get();
+        Node* ptr2;
+        if(ptr1 != nullptr){
+            head = std::make_unique<Node>(ptr1->value);
+            ptr2 = head.get();
+            while(ptr1->next.get()){
+                ptr1 = ptr1->next.get();
+                ptr2->next = std::make_unique<Node>(ptr1->value);
+                ptr2 = ptr2->next.get();
+            }
+        }else{
+            head = nullptr;
+        }
         // 请实现拷贝构造函数为 **深拷贝**
     }
 
@@ -58,16 +60,16 @@ struct List {
 
     int pop_front() {
         int ret = head->value;
-        head = head->next;
+        head = std::move(head->next);
         return ret;
     }
 
     void push_front(int value) {
-        auto node = std::make_shared<Node>(value);
-        node->next = head;
+        auto node = std::make_unique<Node>(value);
         if (head)
-            head->prev = node;
-        head = node;
+			head->prev = node.get();
+		node->next = std::move(head);
+		head = std::move(node);
     }
 
     Node *at(size_t index) const {
