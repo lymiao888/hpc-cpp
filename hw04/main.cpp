@@ -4,7 +4,7 @@
 #include <chrono>
 #include <cmath>
 
-float frand() {
+static float frand() {
     return (float)rand() / RAND_MAX * 2 - 1;
 }
 
