@@ -3,32 +3,37 @@
 #include <vector>
 #include <chrono>
 #include <cmath>
-
+static constexpr int num = 48;
 static float frand() {
     return (float)rand() / RAND_MAX * 2 - 1;
 }
-
-struct Star {
-    float px, py, pz;
-    float vx, vy, vz;
-    float mass;
+//我觉得这里可以改结构体！
+struct alignas(16) Star {
+    float px[4], py[4], pz[4];
+    float vx[4], vy[4], vz[4];
+    float mass[4];
 };
 
 std::vector<Star> stars;
 
+//这里的for循环影响不大，主要跟结构体有关
 void init() {
-    for (int i = 0; i < 48; i++) {
-        stars.push_back({
-            frand(), frand(), frand(),
-            frand(), frand(), frand(),
-            frand() + 1,
-        });
+    for (int i = 0; i < num / 4; i++) {
+        for(int j = 0; j < 4 ; i++){
+            stars[i].px[j] = frand();
+            stars[i].py[j] = frand();
+            stars[i].pz[j] = frand();
+            stars[i].vx[j] = frand();
+            stars[i].vy[j] = frand();
+            stars[i].vz[j] = frand();
+            stars[i].mass[j] = frand() + 1;
+        }
     }
 }
 
-float G = 0.001;
-float eps = 0.001;
-float dt = 0.01;
+static const float G = 0.001;
+static const float eps = 0.001;
+static const float dt = 0.01;
 
 void step() {
     for (auto &star: stars) {
@@ -60,7 +65,7 @@ float calc() {
             float dy = other.py - star.py;
             float dz = other.pz - star.pz;
             float d2 = dx * dx + dy * dy + dz * dz + eps * eps;
-            energy -= other.mass * star.mass * G / sqrt(d2) / 2;
+            energy -= other.mass * star.mass * G / std::sqrt(d2) / 2;
         }
     }
     return energy;
