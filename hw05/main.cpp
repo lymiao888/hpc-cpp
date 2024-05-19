@@ -1,4 +1,3 @@
-// 小彭老师作业05：假装是多线程 HTTP 服务器 - 富连网大厂面试官觉得很赞
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -44,8 +43,8 @@ std::string do_login(std::string username, std::string password) {
     std::unique_lock grd2(mtx_login);
     auto now = std::chrono::steady_clock::now(); 
     if (has_login.find(username) != has_login.end()) {
-        auto sec = std::chrono::duration_cast<std::chrono::seconds>(now - has_login.at(username)).count(); 
-        std::cout<<"=="<<sec<<"==";
+        double sec = std::chrono::duration_cast<std::chrono::duration<double>>(now - has_login.at(username)).count(); 
+        // std::cout<<"=="<<sec<<"==";
         return std::to_string(sec) + "秒内登录过";
     }
     has_login[username] = now;
