@@ -1,0 +1,3 @@
+/home/lym/hpc-cpp/NOTE/Cuda编程/cuda-learning/03_array/03/build/CMakeFiles/main.dir
+/home/lym/hpc-cpp/NOTE/Cuda编程/cuda-learning/03_array/03/build/CMakeFiles/edit_cache.dir
+/home/lym/hpc-cpp/NOTE/Cuda编程/cuda-learning/03_array/03/build/CMakeFiles/rebuild_cache.dir
