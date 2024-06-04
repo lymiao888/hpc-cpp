@@ -177,24 +177,162 @@ int nblocks = (n + nthreads + 1) / nthreads;
 kernel<<<nblocks, nthreads>>>(arr, n);
 ```
 
-## 04 C++封装
-
+## 04 Cuda与C++封装性
 ```std::vector```作为模版类，其实有两个模版参数，```std::vector<T,Allocator T>```
 我们平时用的就是```std::vector<T>```，因为第二个参数默认是```std::allocator<T>```，等价于```std::vector<T,std::allocator<T>>```
 ```std::allocator<T>```负责分配和释放内存
 他有几个功能函数```T *allocate(size_t n)```,```void deallocate(T *p, size_t n)```
 
+> 好复杂啊，简单来说，就是vector这个容器依赖于Allocator来分配和释放内存，默认是CPU，但是我们要在GPU上使用vector就要改再改ALlocator
+// (源代码代码来自@archibate)他写一个了cudaAllocator骗过vector；当然我们最好是用CUDA官方给的thrust库比较好
+```C++
+#include <cstddef>
+#include <utility>
+#include <cuda_runtime.h>
+#include "helper_cuda.h"
+
+template <class T>
+struct CudaAllocator {
+    using value_type = T;
+
+    T *allocate(size_t size) {
+        T *ptr = nullptr;
+        checkCudaErrors(cudaMallocManaged(&ptr, size * sizeof(T)));
+        return ptr;
+    }
+
+    void deallocate(T *ptr, size_t size = 0) {
+        checkCudaErrors(cudaFree(ptr));
+    }
+    template <class ...Args>
+    void construct(T *p, Args &&...args) {
+        if constexpr (!(sizeof...(Args) == 0 && std::is_pod_v<T>))
+            ::new((void *)p) T(std::forward<Args>(args)...);
+    }
+
+    constexpr bool operator==(CudaAllocator<T> const &other) const {
+        return this == &other;
+    }
+};
+```
+解释一下后面两个函数：目的是禁用0初始化，如果无参，则跳过，从而避免在CPU上的低效0初始化
+咋用？eg. ```std::vector<int, CUdaAllocator<int>> arr(n);```
+
+### template
+```C++
+template <int N, class T>
+__global__ void kernel(T *arr) {
+    for (int i = blockDim.x * blockIdx.x + threadIdx.x; i < n; i += blockDim.x * gridDim.x) {
+        arr[i] = i;
+    }
+}
+```
+怎么调用？```kernel<n><<<32, 128>>>(arr.data())```注意如果手动指定模版参数，请放在三重尖括号前面
+
+### functor
+核函数可以实现函数式编程
+```C++
+template <class Func>
+__global__ void parallel_for (int n, Func func){
+    for (int i = blockDim.x * blockIdx.x + threadidx.x; i < n; i += blockDim.x * gridDim.x)
+        func(i);
+}
+struct Functor { 
+    __device__ void operator()(int i) const {
+        printf("number %d", i);
+    }
+}
+int main() {
+    int n = 65555;
+    parallel_for<<<32, 128>>>(n, Functor{});
+    checkCudaErrors(cudaDeviceSynchronize());
+    return 0;
+}
+```
+注意:
+1. Func不能是Fun const&，不然会编程一个指向CPU地址的指针，CPU向GPU传参数必须要按值传递
+2. 作为参数的函数必须是一个有成员函数operator()的类型，不能是独立的函数
+3. 这个函数必须被标记为__device__类型，不然会在cpu上
+### lambda
+这个很复杂，首先我们需要在编译环境中打开 --extended_lambda
+在CMake中加入```target_compile_options(mian PUBLIC $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda>)```
+1. 基础版
+```C++
+parallel_for<<<32, 128>>>(n, [] __device__ (int i) {
+    printf("number %d", i);
+});
+```
+2. 加强版--获取外部变量
+parallel_for函数的定义还是如上
+* 我们知道lambda函数可以用[&]捕获变量，但是如果直接这样捕获会出错，因为此时捕获的是CPU堆栈上的变量本身，而我们的核函数需要arr在GPU上的内存地址
+* 我们可以用[=]按值捕获来解决吗？答案是不行，因为vector的拷贝是深拷贝，这样会把整个vector都拷贝到GPU上，显然这不是我们的目的，我们的目的是在核函数中把GPU上的arr进行赋值，而不改变CPU上的arr
+**解决方案1**
+```C++
+int main() {
+    int n = 65536;
+    std::vector<int, CUdaAllocator<int>> arr(n);
+    int *arr_data = arr.data();
+    parallel_for<<<32, 128>>>(n, [=] __device__ (int i)) {
+        arr_data[i] = i;
+    }
+    checkCudaErrors(cudaDeviceSynchronize());
+}
+```
+data()返回一个起始地址的原始指针，这个指针是浅拷贝的，所以可以拷贝到GPU上让他访问
+> 啥？浅拷贝就行，深拷贝就不行？这是啥意思
+> 重新总结一下这个点，首先需要回顾之前说cuda内存分配的知识，GPU不能访问CPU的内存，同样CPU也不能访问GPU的内存，我们核函数传入的lambda函数要对GPU上的数据进行操作的时候，就要注意```std::vector<int, CUdaAllocator<int>> arr(n);```这个的含义是我们在CPU上定义了arr这个变量，但是他的数据在GPU上，所以我们需要取数据的话，需要对arr浅拷贝，获得指针
 
 
+**解决方案2**
+```C++
+int main() {
+    int n = 65536;
+    std::vector<int, CUdaAllocator<int>> arr(n);
+    parallel_for<<<32, 128>>>(n, [arr = arr.data()] __device__ (int i)) {
+        arr[i] = i;
+    }
+    checkCudaErrors(cudaDeviceSynchronize());
+}
+```
+这个跟上面的是一样的，只是我们可以在核函数内直接用arr变量名
 
-## 05 数学运算
+### 总结
+C++的重要特性就体现在STL，模版，lambda函数这几个方面，上面的例子展现了C++的封装性，cuda对C++的支持使得这个几个C++的特点都可以在核函数上实现，这个是非常重要的
+## 05 thrust库
+1. thrust分配内存
+先来看看一个小程序
+```C++
+#include <turust/universal_vector.h>
+int main(){
+    int n = 65536;
+    thrust::universal_vector<float> x(n); // 统一内存非配，无论CPU还是GPU都能访问
+    thrust::host_vector<float> y(n);// host_vector帮我们在cpu上分配内存
+    thrust::device_vector<float> z(n);// device_vector帮我们在gpu上分配内存
+    // 可以通过 = 运算符实现上面两者的数据拷贝，可以自动调用cudaMemcpy
+}
+```
+2. thrust提供模版函数
+下面的几个函数是对迭代器的操作
+* thrust::generate(m, n, func)
+* thrust::for_each(m, n, func)
 
-## 06 thrust库
+## 06 原子操作
+还记得之前C++中原子操作吗，因为多线程并行的时候```sum += arr[i]``` 这样的操作其实分成了四步，
+1. 读取sum到寄存器A
+2. 读取arr[i]到寄存器B
+3. 让寄存器A的值加上寄存器B的值
+4. 把寄存器A的值写回到sum内存中
+所以如果并发操作会出现大问题，这也是C++原子操作诞生的目的，通过让这几个操作不可分割，保证计算的准确性
 
-## 07 原子操作
+Cuda的核函数也有原子操作
+atomicAdd() atomicSub() ... ...
+
+> ```atomicCAS```我们可以通过这个来构造新的原子操作
+> 比如```atomicCAS(a, b, a * b)```
+
 
 ## 08 板块与共享内存
 
-## 09 共享内存进阶
+## 08 共享内存进阶
 
-## 10 插桩
+## 09 插桩
